@@ -1,0 +1,103 @@
+---
+title: "Tiempo meteorológico"
+output: html_document
+---
+
+```{r replicabilidad, include=FALSE}
+set.seed(35872358)
+```
+
+
+Supongamos un modelo muy simplificado de tiempo meteorológico que considera que los días solo pueden estar soleados, nublados o lluviosos y que asume que el tiempo que hace cada día solo depende del que hizo el día anterior.
+
+Es decir, el modelo viene dado por una cadena de Markov con el siguiente conjunto de estados
+
+```{r estados}
+estados_tiempo <- c("Soleado", "Nublado", "Lluvioso")
+```
+
+y la siguiente matriz de transición
+
+```{r matriz-transición}
+transicion_tiempo <- matrix(c(.7, .2, .1,
+                              .3, .4, .3,
+                              .2, .45, .35),
+                            nrow = 3, byrow = TRUE,
+                            dimnames = list(estados_tiempo,
+                                            estados_tiempo))
+```
+
+La cadena de Markov se construye entonces como sigue:
+
+```{r cadena-Markov, message=FALSE}
+library(markovchain)
+
+modelo_tiempo <- new("markovchain",
+                     states = estados_tiempo,
+                     transitionMatrix = transicion_tiempo,
+                     name = "Modelo de tiempo meteorológico")
+modelo_tiempo
+```
+
+Las probabilidades de transición se pueden obtener directamente del modelo.
+
+```{r probabilidades-transición}
+modelo_tiempo["Soleado", "Soleado"]
+modelo_tiempo["Soleado", "Nublado"]
+modelo_tiempo["Soleado", "Lluvioso"]
+conditionalDistribution(modelo_tiempo, "Soleado")
+```
+
+Es habitual representar las cadenas de Markov con espacio de estados finito mediante un grafo que muestre las posibles transiciones entre estados, junto con las correspondientes probabilidades.
+
+```{r representación-gráfica}
+plot(modelo_tiempo, layout = igraph::layout.graphopt)
+```
+
+Una _realización_ del modelo a partir de un estado inicial \( i \) es una secuencia de estados que comienza en \( i \) y en la que el resto de estados se ha generado de manera aleatoria según las probabilidades de transición a partir del estado anterior.
+
+```{r realizaciones-aleatorias}
+rmarkovchain(10, modelo_tiempo, t0 = "Soleado", include.t0 = TRUE)
+rmarkovchain(10, modelo_tiempo, t0 = "Soleado", include.t0 = TRUE)
+```
+
+De las ecuaciones de Chapman-Kolmogorov se deduce que las probabilidades de transición en \( t \) pasos se pueden obtener multiplicando la matriz de transición de la cadena de Markov consigo misma \( t \) veces. Por tanto,
+
+```{r transición-10-pasos}
+tiempo_10_pasos <- modelo_tiempo ^ 10
+tiempo_10_pasos
+```
+
+Podemos realizar una comprobación experimental de lo anterior mediante simulaciones.
+
+```{r simulaciones-10-pasos}
+tiempos_dia_10 <- replicate(1e5, {
+  rmarkovchain(10, modelo_tiempo, t0 = "Soleado")
+})
+tiempos_dia_10[, 1:6]
+prop.table(table(tiempos_dia_10[10,]))
+```
+
+En este modelo de tiempo meteorológico, todos los estados son accesibles entre sí.
+
+```{r estados-accesibles}
+for (i in estados_tiempo) {
+  for (j in estados_tiempo) {
+    print(sprintf("%s es accesible desde %s: %s", j, i,
+                  is.accessible(modelo_tiempo, from = i, to = j)))
+  }
+}
+```
+
+Por lo tanto, hay una única clase de estados comunicantes y la cadena de Markov es irreducible.
+
+```{r estados-comunicantes}
+communicatingClasses(modelo_tiempo)
+is.irreducible(modelo_tiempo)
+```
+
+La cadena de Markov es aperiódica.
+
+```{r periodicidad}
+period(modelo_tiempo)
+```

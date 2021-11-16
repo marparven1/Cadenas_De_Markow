@@ -1,0 +1,96 @@
+---
+title: "Modelo de Ehrenfest"
+output: html_document
+---
+
+```{r replicabilidad, include=FALSE}
+set.seed(35872358)
+```
+
+
+Un modelo clásico de difusión de partículas a través de una membrana es el famoso _modelo de Ehrenfest_. El modelo considera, de manera abstracta, que existen dos urnas conteniendo entre ambas un cierto número \( N \) de bolas y que, en cada paso, se cambia de urna una de las bolas, elegida al azar. De esta forma, las partículas (representadas por las bolas) fluctúan entre los dos espacios separados por la membrana (representados por las urnas) con un sentido desde el espacio con mayor concentración hacia el espacio con menor concentración de partículas.
+
+Si nos fijamos en una de las urnas y consideramos que la variable \( X_{t} \) cuenta el número de bolas que contiene en el instante \( t \), se tiene una cadena de Markov cuyos estados son los números de \( 0 \) a \( N \).
+
+```{r estados}
+N <- 4
+estados_Ehrenfest <- as.character(0:N)
+```
+
+Las probabilidades de transición se pueden calcular fácilmente
+\[
+  P(X_{t + 1} = j \mid X_{t} = i) =
+  \begin{cases}
+    \frac{N - i}{N} & \text{si } j = i + 1, \\
+    \frac{i}{N} & \text{si } j = i - 1, \\
+    0 & \text{en otro caso.} \\
+  \end{cases}
+\]
+
+```{r matriz-transición}
+probabilidad_transicion <- function(i, j) {
+  i <- as.numeric(i)
+  j <- as.numeric(j)
+  if (j == i + 1) {
+    (N - i) / N
+  } else if (j == i - 1) {
+    i / N
+  } else {
+    0
+  }
+}
+
+transicion_Ehrenfest <-
+  outer(estados_Ehrenfest, estados_Ehrenfest,
+        Vectorize(probabilidad_transicion))
+dimnames(transicion_Ehrenfest) <- list(estados_Ehrenfest, estados_Ehrenfest)
+```
+
+La cadena de Markov se construye entonces como sigue:
+
+```{r cadena-Markov, message=FALSE}
+library(markovchain)
+
+modelo_Ehrenfest <- new("markovchain",
+                        states = estados_Ehrenfest,
+                        transitionMatrix = transicion_Ehrenfest,
+                        name = "Modelo de Ehrenfest")
+modelo_Ehrenfest
+```
+
+y tiene la siguiente representación gráfica:
+
+```{r representación-gráfica}
+plot(modelo_Ehrenfest, layout = igraph::layout.graphopt)
+```
+
+Podemos estudiar el modelo analizando realizaciones aleatorias a partir de distintos estados iniciales.
+
+```{r realizaciones-aleatorias}
+rmarkovchain(10, modelo_Ehrenfest, t0 = "0", include.t0 = TRUE)
+rmarkovchain(10, modelo_Ehrenfest, t0 = as.character(N), include.t0 = TRUE)
+```
+
+En el modelo de Ehrenfest todos los estados son accesibles entre sí, aunque algunos de ellos no lo son en un único paso.
+
+```{r estados-accesibles}
+for (i in estados_Ehrenfest) {
+  for (j in estados_Ehrenfest) {
+    print(sprintf("%s es accesible desde %s: %s", j, i,
+                  is.accessible(modelo_Ehrenfest, from = i, to = j)))
+  }
+}
+```
+
+Por lo tanto, hay una única clase de estados comunicantes y la cadena de Markov es irreducible.
+
+```{r estados-comunicantes}
+communicatingClasses(modelo_Ehrenfest)
+is.irreducible(modelo_Ehrenfest)
+```
+
+La cadena de Markov no es aperiódica.
+
+```{r periodicidad}
+period(modelo_Ehrenfest)
+```

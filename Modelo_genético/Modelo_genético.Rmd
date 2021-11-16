@@ -1,0 +1,96 @@
+---
+title: "Modelo genético"
+output: html_document
+---
+
+```{r replicabilidad, include=FALSE}
+set.seed(35872358)
+```
+
+
+El tipo más simple de herencia de rasgos en animales ocurre cuando el rasgo está gobernado por un par de genes, cada uno de los cuales puede ser de dos tipos, digamos _G_ y _g_. Un individuo se dice _dominante_ si tiene la combinación _GG_, _recesivo_ si tiene la combinación _gg_ e híbrido si tiene la combinación _Gg_ (que es genéticamente la misma que _gG_).
+
+En el apareamiento de dos animales, la descendencia hereda un gen de cada progenitor. La asunción básica de los genetistas es que esos genes se seleccionan al azar, de manera independiente. Esta asunción determina la probabilidad de ocurrencia de cada tipo de descendencia. La descendencia de dos progenitores dominantes debe ser dominante, de dos progenitores recesivos debe ser recesiva y de un progenitor dominante y uno recesivo debe ser híbrida.
+
+En el apareamiento de un progenitor dominante y uno híbrido, cada descendiente debe heredar un gen _G_ del primero y tiene la misma posibilidad de heredar un gen _G_ o un gen _g_ del segundo. Por lo tanto, hay la misma probabilidad de obtener un descendiente dominante o uno híbrido. Igualmente, la descendencia de un progenitor recesivo y uno híbrido tiene la misma probabilidad de ser recesivo o ser híbrido.
+
+En el apareamiento de dos progenitores híbridos, la descendencia tiene la misma posibilidad de obtener un gen _G_ o un gen _g_ de cada padre. Por lo tanto, tiene probabilidad \( 0.25 \) de ser dominante, \( 0.25 \) de ser recesivo y \( 0.5 \) de ser híbrido.
+
+Consideremos un proceso de apareamiento continuado en el que siempre uno de los progenitores es híbrido. Asumimos que siempre hay al menos un descendiente, uno de los cuales es elegido al azar para participar en el siguiente apareamiento. Podemos modelizar este proceso mediante una cadena de Markov en la que los estados son pares de genes.
+
+```{r estados}
+pares_genes <- c("GG", "Gg", "gg")
+```
+
+La matriz de probabilidades de transición viene dada por
+\[
+  P =
+  \begin{pmatrix}
+    .5 & .5 & 0 \\
+    .25 & .5 & .25 \\
+    0 & .5 & .5
+  \end{pmatrix}
+\]
+
+```{r modelo-genético-1, message=FALSE}
+library(markovchain)
+
+transicion_genetico_1 <- matrix(c(.5, .5, 0,
+                                  .25, .5, .25,
+                                  0, .5, .5),
+                                nrow = 3, byrow = TRUE,
+                                dimnames = list(pares_genes, pares_genes))
+modelo_genetico_1 <- new("markovchain",
+                         states = pares_genes,
+                         transitionMatrix = transicion_genetico_1,
+                         name = "Modelo genético 1")
+modelo_genetico_1
+plot(modelo_genetico_1)
+```
+
+Si, por el contrario, el proceso de apareamiento se realizara con uno de los progenitores siempre dominante, entonces la matriz de transición sería
+\[
+  P =
+  \begin{pmatrix}
+    1 & 0 & 0 \\
+    .5 & .5 & 0 \\
+    0 & 1 & 0
+  \end{pmatrix}
+\]
+
+```{r modelo-genético-2}
+transicion_genetico_2 <- matrix(c(1, 0, 0,
+                                  .5, .5, 0,
+                                  0, 1, 0),
+                                nrow = 3, byrow = TRUE,
+                                dimnames = list(pares_genes, pares_genes))
+modelo_genetico_2 <- new("markovchain",
+                         states = pares_genes,
+                         transitionMatrix = transicion_genetico_2,
+                         name = "Modelo genético 2")
+modelo_genetico_2
+plot(modelo_genetico_2)
+```
+
+A continuación calculamos las clases de estados comunicantes y comprobamos que el primer modelo de apareamiento continuado es una cadena de Markov irreducible.
+
+```{r estados-comunicantes-1}
+communicatingClasses(modelo_genetico_1)
+is.irreducible(modelo_genetico_1)
+```
+
+Sin embargo, en el segundo modelo hay estados que no son accesibles entre sí, por lo que la cadena de Markov no es irreducible.
+
+```{r estados-accesibles-2}
+for (i in pares_genes) {
+  for (j in pares_genes) {
+    print(sprintf("%s es accesible desde %s: %s", j, i,
+                  is.accessible(modelo_genetico_2, from = i, to = j)))
+  }
+}
+```
+
+```{r estados-comunicantes-2}
+communicatingClasses(modelo_genetico_2)
+is.irreducible(modelo_genetico_2)
+```
