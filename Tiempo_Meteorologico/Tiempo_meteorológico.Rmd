@@ -25,6 +25,7 @@ transicion_tiempo <- matrix(c(.7, .2, .1,
                             nrow = 3, byrow = TRUE,
                             dimnames = list(estados_tiempo,
                                             estados_tiempo))
+transicion_tiempo
 ```
 
 La cadena de Markov se construye entonces como sigue:
@@ -45,7 +46,7 @@ Las probabilidades de transición se pueden obtener directamente del modelo.
 modelo_tiempo["Soleado", "Soleado"]
 modelo_tiempo["Soleado", "Nublado"]
 modelo_tiempo["Soleado", "Lluvioso"]
-conditionalDistribution(modelo_tiempo, "Soleado")
+conditionalDistribution(modelo_tiempo, "Soleado") # Condicionadas
 ```
 
 Es habitual representar las cadenas de Markov con espacio de estados finito mediante un grafo que muestre las posibles transiciones entre estados, junto con las correspondientes probabilidades.
@@ -57,6 +58,7 @@ plot(modelo_tiempo, layout = igraph::layout.graphopt)
 Una _realización_ del modelo a partir de un estado inicial \( i \) es una secuencia de estados que comienza en \( i \) y en la que el resto de estados se ha generado de manera aleatoria según las probabilidades de transición a partir del estado anterior.
 
 ```{r realizaciones-aleatorias}
+# Son realizaciones aleatorias de la cadena de Markow
 rmarkovchain(10, modelo_tiempo, t0 = "Soleado", include.t0 = TRUE)
 rmarkovchain(10, modelo_tiempo, t0 = "Soleado", include.t0 = TRUE)
 ```
@@ -65,8 +67,12 @@ De las ecuaciones de Chapman-Kolmogorov se deduce que las probabilidades de tran
 
 ```{r transición-10-pasos}
 tiempo_10_pasos <- modelo_tiempo ^ 10
-tiempo_10_pasos
+tiempo_10_pasos # Probabilidades
 ```
+
+- La probabilidad de que esté soleado un dia soleado es 0.4638.
+- La probabilidad de que esté nublado si el día es soleado es 0.31809
+- La probabilidad de que sea un día lluvioso dado que es soleado es 0.21809
 
 Podemos realizar una comprobación experimental de lo anterior mediante simulaciones.
 
@@ -87,7 +93,12 @@ for (i in estados_tiempo) {
                   is.accessible(modelo_tiempo, from = i, to = j)))
   }
 }
+
 ```
+
+Esta función anterior me dice si el estado J es accesible desde el estado i. Es decir, si es accesible, puedo llegar al estado J empezando por el estado i.
+
+
 
 Por lo tanto, hay una única clase de estados comunicantes y la cadena de Markov es irreducible.
 

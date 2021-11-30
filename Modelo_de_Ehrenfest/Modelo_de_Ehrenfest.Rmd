@@ -14,7 +14,7 @@ Si nos fijamos en una de las urnas y consideramos que la variable \( X_{t} \) cu
 
 ```{r estados}
 N <- 4
-estados_Ehrenfest <- as.character(0:N)
+estados_Ehrenfest <- as.character(0:N) # los estados de la cadena no pueden ser numéricos
 ```
 
 Las probabilidades de transición se pueden calcular fácilmente
@@ -43,6 +43,7 @@ probabilidad_transicion <- function(i, j) {
 transicion_Ehrenfest <-
   outer(estados_Ehrenfest, estados_Ehrenfest,
         Vectorize(probabilidad_transicion))
+# Tenemos que aplicar la función probabilidad_transición vectorizada, porque ESTADOS_EHRENFEST ES UN VECTOR para cada par de estados
 dimnames(transicion_Ehrenfest) <- list(estados_Ehrenfest, estados_Ehrenfest)
 ```
 
@@ -67,6 +68,7 @@ plot(modelo_Ehrenfest, layout = igraph::layout.graphopt)
 Podemos estudiar el modelo analizando realizaciones aleatorias a partir de distintos estados iniciales.
 
 ```{r realizaciones-aleatorias}
+# simulación de la cadena de markow
 rmarkovchain(10, modelo_Ehrenfest, t0 = "0", include.t0 = TRUE)
 rmarkovchain(10, modelo_Ehrenfest, t0 = as.character(N), include.t0 = TRUE)
 ```
