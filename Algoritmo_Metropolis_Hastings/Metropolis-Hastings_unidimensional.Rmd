@@ -1,0 +1,364 @@
+---
+title: "Algoritmo de Metropolis-Hastings: ejemplo unidimensional"
+output: html_document
+---
+
+```{r replicabilidad, include=FALSE}
+set.seed(23059823)
+```
+
+Supongamos que queremos estimar \( \mu = \mathbb{E}_{f}[X] \), donde \( f(x) \propto f_{u}(x) = x^{2} \mathrm{e}^{-x^{2} + \sin(x)} \).
+
+La aplicación del método de Montecarlo para realizar esa estimación exige que generemos valores aleatorios distribuidos según la densidad \( f \) (que es \( f_{u} \) multiplicada por una constante de normalización adecuada que hace que su integral valga 1). Puesto que no se trata de una densidad estándar, usaremos el algoritmo de Metropolis-Hastings para construir una cadena de Markov cuya distribución límite sea \(f\).
+
+Vamos a aplicar el algoritmo de dos maneras distintas: en primer lugar, mediante un muestreador independiente; en segundo lugar, mediante un paseo aleatorio haciendo uso del paquete `mcmc`. 
+
+
+## Algoritmo de Metropolis-Hastings con un muestreador independiente
+
+Con el objetivo de elegir un muestreador independiente adecuado, procedemos a representar gráficamente la densidad no normalizada \( f_{u} \).
+
+```{r densidad-objetivo}
+library(ggplot2)
+
+f_u <- function(x) {
+  x ^ 2 * exp(-x ^ 2 + sin(x))
+}
+
+ggplot() +
+  geom_function(fun = f_u) +
+  xlim(-4, 4)
+```
+
+Puesto que \( f_{u} \) es positiva en todo \( \mathbb{R} \) (excepto en el único punto \( x = 0 \)), el muestreador \( q \) que elijamos debe poder proponer como nuevo estado cualquier número real (es decir, también debe ser positiva en todo \( \mathbb{R} \)). Un candidato natural es usar una distribución normal \( N(\mu, \sigma^{2}) \). Por otra parte, la gráfica anterior muestra que los valores más probables son los del intervalo \( (-2, 2) \), con el máximo alcanzándose en aproximadamente \(x = 1\). Por tanto, unos parámetros adecuados podrían ser \( \mu = 1, \sigma = 1 \), tal y como se observa en la siguiente gráfica.
+
+```{r densidad-instrumental}
+q <- function(y) {dnorm(y, mean = 1, sd = 1)} # función de densidad de mi distribución instrumental, la que me proporciona nuevos estados
+
+ggplot() +
+  geom_function(fun = f_u) +
+  geom_function(fun = q, colour = "red") +
+  xlim(-4, 4)
+```
+
+El siguiente código genera una realización de longitud 10 de la cadena de Markov construida por el algoritmo de Metropolis-Hastings, mostrando con todo detalle el funcionamiento de este último.
+
+```{r algoritmo-Metropolis-Hastings}
+n <- 10
+estado_actual <- 1
+for (t in seq_len(n - 1)) {
+  print(sprintf("Estado: %.3f", estado_actual))
+  estado_propuesto <- rnorm(1, mean = 1, sd = 1)
+  razon_Hastings <-
+    (f_u(estado_propuesto) * q(estado_actual)) /
+    (f_u(estado_actual) * q(estado_propuesto))
+  u <- runif(1)
+  print(sprintf("   Estado propuesto: %.3f, Prob. de aceptar: %.3f, %s (u = %.3f)",
+                estado_propuesto,
+                min(1, razon_Hastings),
+                if (u < razon_Hastings) {"Aceptar"} else {"Rechazar"},
+                u))
+  if (u < razon_Hastings) {estado_actual <- estado_propuesto}
+}
+```
+
+Obsérvese que la densidad instrumental escogida garantiza que es posible alcanzar en un paso cualquier \( y \in \mathbb{R} \setminus \{0\} \), ya que \( q(y) > 0 \), luego es posible que se proponga \( y \) como nuevo estado, y la razón de Hastings no es nula, luego es posible que se acepte \( y \) como nuevo estado. Esto quiere decir que la cadena de Markov construida es \( f \)-irreducible.
+
+Por otra parte, una condición suficiente para que la cadena de Markov sea aperiódica es que la probabilidad de rechazar el nuevo estado propuesto sea mayor que 0. Como en nuestro caso \( q \) es estrictamente positiva en todo \( \mathbb{R} \), se tiene que
+\begin{align*}
+  \mathbb{P}\big(r(y \mid x) < 1\big)
+  &=  \mathbb{P}\Bigg(\frac{f_{u}(y) q(x)}{f_{u}(x) q(y)} < 1\Bigg) \\
+  &=  \mathbb{P}\Bigg(\frac{f_{u}(y)}{q(y)} < \frac{f_{u}(x)}{q(x)}\Bigg)
+\end{align*}
+
+La siguiente figura representa la función \( f_{u}/q \) y muestra que, dado cualquier \( x \in \mathbb{R} \), la probabilidad de proponer un nuevo estado \( y \) que verifique la desigualdad anterior es mayor que 0.
+
+```{r aperiodicidad}
+ggplot() +
+  geom_function(fun = function(x) {f_u(x) / q(x)}) +
+  xlim(-10, 10)
+```
+
+La teoría de cadenas de Markov asegura entonces que la cadena de Markov construida por el algoritmo tiene a \( f \) como distribución límite. Podemos comprobarlo generando muchas realizaciones de esa cadena y comprobando que la distribución de los últimos estados de esas realizaciones se corresponde con \( f \) (el histograma y la gráfica de la función \( f_{u} \) no coinciden exactamente porque recordemos que \( f_{u} \) no está normalizada).
+
+```{r distribución-limite}
+n <- 1e3 # el número de valores que genero x1,x2,...,x1000
+m <- 1e3 # las veces que replico
+valores <- replicate(m, {
+  estado_actual <- rnorm(1, mean = 1, sd = 1) # estado inicial generado de manera                                                     aleatoria
+# Como el muestreador independiente es la N(1,1), digo que sea tambien el generador inicial. 
+# Nota: El muestreador independiente no depende del estado propuesto, por eso es independiente
+  for (t in seq_len(n - 1)) { 
+    estado_propuesto <- rnorm(1, mean = 1, sd = 1)  # propongo un nuevo estado
+    razon_Hastings <-
+      (f_u(estado_propuesto) * q(estado_actual)) /
+      (f_u(estado_actual) * q(estado_propuesto))
+    u <- runif(1) # genero un valor entre 0 y 1
+    if (u < razon_Hastings) {estado_actual <- estado_propuesto} # si acepto, cambio el estado actual por el propuesto, y si no, dejo el mismo estado
+  }
+  # Ya he acabado de generar la realización de la cadena de Markow, el estado actual es el estado de la cadena de markow en el instante 1000
+
+  estado_actual # Selecciono el ultimo estado de la cadena de markow
+})
+
+
+# Ahora dibujo el histograma de frecuencias relativas de los valores
+ggplot(data.frame(x = valores), aes(x = x)) +
+  geom_histogram(aes(y = stat(density)), binwidth = .25) +
+  geom_function(fun = f_u)
+```
+
+
+
+Observaciones acerca de la aperiodicidad de la cadena de Markov:
+
+* Es parecido pero no coincide exactamente con la curva, porque esa curva es de la función $x^2 e^{-x^2+\sin(x)}$, y no he introducido la constante de normalización. Si la metiera, podría obtener un histograma que se coincida completamente en el gráfico. El gráfico es solo intuitivo. La técnica válida es: genera valores
+
+* Las cadenas de Markov obtenidas mediante el algoritmo de Metropolis-Hastings son, en general, aperiódicas.
+* La ley fuerte de los grandes números para cadenas de Markov, que es el resultado en el que estamos interesados de manera práctica, no requiere de esta propiedad.
+
+La práctica habitual es, en efecto, generar una única realización de la cadena de Markov que proporcionará mejores estimaciones cuanto mayor longitud tenga.
+
+```{r única-realización}
+n <- 1e6
+estados <- numeric(n) # VECTOR DE LA LONGITUD ADECUADA PARA ALMACENAR LOS 1E6 VALORES DE LOS ESTADOS, Y VOY METIENDO LOS VALORES EN ESTE VECTOR. Es un vector con 1e6 o
+estados[1] <- 1 # estado inicial
+for (t in seq_len(n - 1)) { # propongo un nuevo estado
+  estado_actual <- estados[t] # el actual es el de la posición t # aptes!!
+  estado_propuesto <- rnorm(1, mean = 1, sd = 1)
+  razon_Hastings <-
+    (f_u(estado_propuesto) * q(estado_actual)) /
+    (f_u(estado_actual) * q(estado_propuesto))
+  u <- runif(1)
+  if (u < razon_Hastings) {
+    estados[t + 1] <- estado_propuesto # si acepto el nuevo estado
+  } else {
+    estados[t + 1] <- estado_actual # si no acepto el nuevo me quedo el que tenía
+  }
+}
+# En el vector estados tengo 1e6 valores
+
+# Diagnóstico de convergencia: gráfico (en nuestro caso)
+ggplot(data.frame(x = estados), aes(x = x)) +
+  geom_histogram(aes(y = stat(density)), binwidth = .25) +
+  geom_function(fun = f_u)
+# ¿Diagnóstico de convergencia: La cadena de Markow ha convergido?
+```
+
+
+
+
+
+
+Para estimar el valor de \( \mu \) basta entonces calcular la **media** de los estados incluidos en la realización obtenida de la cadena de Markov.
+
+```{r estimación-independiente}
+estimacion <- mean(estados)
+estimacion # esperanza de x, cuando x se distribuye de manera proporcional a x^2e^{-x^2+sen(x)}
+```
+
+Como para todo resultado obtenido mediante el método de Montecarlo, es conveniente proporcionar un intervalo de confianza para el mismo. Hay que tener en cuenta que los estados de una cadena de Markov no son independientes entre sí, por lo que no se podría aplicar de manera directa el teorema central del límite para la construcción de esos intervalos. Una manera de solventar esta dificultad es mediante el método de las medias por lotes, que consiste en lo siguiente:
+
+1. Separar los estados de la cadena de Markov en un cierto número de subgrupos de la misma longitud llamados lotes. El número de estados dentro de cada lote tiene que ser suficientemente grande para conseguir independencia (los estados de cada lote se olvidan del valor inicial del lote anterior)
+2. Calcular la media de los estados de cada lote. Se obtienen entonces unos valores que estarán más incorrelados cuanto mayor sea la longitud de los lotes.
+3. Estimar el valor de \( \mu \) y construir un intervalo de confianza de la manera habitual a partir de los valores obtenidos en el paso anterior. La estimación será más precisa cuanto más valores se disponga.
+
+Atendiendo a lo indicado en los puntos 2 y 3, si la cantidad total de estados a generar de la cadena de Markov está prefijado de antemano, entonces hay que buscar un equilibrio entre que la cantidad de lotes sea suficiente y que estos sean lo suficientemente largos.
+
+```{r medias-por-lotes}
+numero_lotes <- 500 # por el elevado coste computacional
+longitud_lotes <- n / numero_lotes # nº de estados dentro de cada lote. Longitud 2000
+medias_lotes <- numeric(numero_lotes) # vector con 500 ceros. Voy a meter las medias de cada lote
+for (i in seq_len(numero_lotes)) { # bucle para introducir las medias en ese vector
+  indices_lotes <- seq(longitud_lotes * (i - 1) + 1,
+                       longitud_lotes * i)
+  medias_lotes[i] <- mean(estados[indices_lotes]) # guardo cada mu_gorro
+}
+# medias_lotes: media de cada uno de los lotes. Es un vector con 500 números
+estimacion <- mean(medias_lotes)
+# mean(medias_lotes) # son el mismo número. Esto es para valores INDEPE
+# mean(estados) # mismo, pero valores NO INDEPE
+error_estandar <- sqrt(var(medias_lotes) / numero_lotes)
+# sqrt(var(estados)/n) # este es más pequeño, estoy subestimando. es un error incorrecto
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+percentil <- qnorm(1 - alfa / 2)
+intervalo_confianza <- estimacion + c(-1, 1) * error_estandar * percentil
+```
+
+Se obtiene entonces para \( \mu \) una estimación de `r estimacion`, con un error estándar de `r error_estandar` y (`r intervalo_confianza`) un intervalo de confianza con probabilidad de cobertura `r probabilidad_cobertura`.
+
+Podemos comprobar a través de un gráfico de autocorrelación que las medias de los lotes son, efectivamente, prácticamente independientes entre sí.
+
+```{r autocorrelación-lotes}
+library(coda)
+
+autocorr.plot(mcmc(medias_lotes)) 
+# mcmc() LO TENGO QUE HACER SÍ O SÍ, SI NO NO PODRÉ ESTUDIAR LA CORRELACIÓN
+# The function mcmc is used to create a Markov Chain Monte Carlo object
+# Esta función transforma el vector en una cadena de montecarlo, que es la que me pide el paquete CODA
+
+abline(h = 0)
+```
+
+
+
+
+
+Esto no ocurre con los estados de la cadena de Markov, por lo que la estimación del error estándar a partir de la varianza muestral subestimaría el valor del primero al no tener en cuenta esta última las correlaciones entre los datos.
+
+```{r autocorrelación-estados}
+autocorr.plot(mcmc(estados))
+sqrt(var(estados) / n)
+```
+
+Datos correlados, aunque la correlación disminuya, no es 0 para los primeros
+
+
+Esto lo hemos hecho con un muestreador independiente, me lo pueden pedir en el examen de esta forma y la gente no sabe hacerlo así.
+Ahora vamos a hacerlo con un muestreador dependiente, que si tiene en cuenta los estados de la cadena de Markow.
+
+## Paseo aleatorio con el paquete `mcmc`
+Tengo apuntes
+
+La función `metrop` del paquete `mcmc` implementa un paseo aleatorio de Metropolis. Es decir, el nuevo estado propuesto por el algoritmo viene dado por
+\[
+  Y = X_{t} + E, \qquad \text{con } E \sim \mathrm{N}(0, \Sigma)
+\]
+
+La función admite los siguientes argumentos:
+
+* Una función que calcula el logaritmo de la densidad (posiblemente no normalizada) de la distribución estacionaria deseada para la cadena de Markov. Esta función debe devolver `-Inf` para todos aquellos argumentos en los que la densidad devolvería el valor cero.
+* `initial`: el estado inicial de la cadena de Markov. Tiene que ser un vector en consonancia con la dimensión del problema. Aquí un vector con un solo número
+* `nbatch`: el número de lotes (o de estados, si la longitud de cada lote es 1) requeridos. Ya aplica el método de las medias por lotes directamente
+* `blen`: la longitud de cada lote (por defecto, 1).
+* `scale`: determina \( \Sigma \), como `scale %*% t(scale)`. Puede ser también un escalar o un vector, en cuyo caso se toma la matriz diagonal correspondiente. El valor por defecto es 1. En la diagonal necesito valores mayores que 0.
+
+```{r paseo-aleatorio-Metropolis}
+library(mcmc)
+
+log_f_u <- function(x) {
+  if (x == 0) {
+    -Inf
+  } else {
+    2 * log(abs(x)) - x ^ 2 + sin(x)
+  }
+}
+
+paseo_Metropolis <- metrop(log_f_u, initial = 1, nbatch = 1e4)
+```
+
+La función `metrop` devuelve una lista con mucha información acerca de la cadena construida. En concreto, la componente `batch` contiene los estados de la cadena de Markov (en realidad, contiene las medias de los lotes, pero en este caso coinciden porque por defecto los lotes son de longitud 1).
+
+```{r salida-metrop}
+str(paseo_Metropolis)
+head(paseo_Metropolis$batch)
+```
+
+Es habitual realizar un diagnóstico de convergencia mediante un gráfico que muestra la evolución de los estados de la cadena de Markov a lo largo del tiempo. Este tipo de gráficos nunca se puede usar para asegurar la convergencia, ya que aunque no muestre signos obvios de no convergencia no es posible saber qué podría ocurrir en instantes futuros.
+
+```{r traza-cadena-Markov}
+traceplot(mcmc(paseo_Metropolis$batch))
+```
+
+En este caso, este gráfico de densidad proporciona una confianza adicional en la convergencia de la cadena de Markov.
+
+```{r gráfico-densidad-cadena-Markov}
+densplot(mcmc(paseo_Metropolis$batch))
+```
+
+Para intentar que la cadena de Markov converja lo más rápido posible, hay una regla empírica obtenida a partir del análisis de un problema concreto (y que, por lo tanto, no siempre es aplicable) que establece que el porcentaje de nuevos estados aceptados debería ser del 25 %. El razonamiento es que un porcentaje demasiado bajo implica que la cadena se encuentre estancada la mayor parte del tiempo, mientras que un porcentaje demasiado alto indicará que los nuevos estados propuestos varían muy poco con respecto a los estados actuales y, por tanto, la cadena de Markov evoluciona muy lentamente.
+
+La componente `accept` de la salida de la función `metrop` proporciona ese porcentaje.
+
+```{r porcentaje-estados-aceptados}
+paseo_Metropolis$accept
+```
+
+La función `metrop` tiene la capacidad de «continuar extendiendo» la cadena de Markov cambiando o manteniendo los valores de los parámetros. Para ello basta proporcionarle como argumentos la salida anterior y los nuevos valores de los parámetros que cambien. Para aumentar el porcentaje de nuevos estados aceptados se puede reducir el valor de `scale`, ya que eso hará que se propongan nuevos estados «más cercanos» a los estados actuales y, en consecuencia, con mayor probabilidad de ser aceptados. Por el razonamiento contrario, para disminuir ese porcentaje bastará aumentar el valor de `scale`.
+
+```{r 25%-estados-aceptados}
+paseo_Metropolis <- metrop(paseo_Metropolis, scale = 2)
+paseo_Metropolis$accept
+paseo_Metropolis <- metrop(paseo_Metropolis, scale = 3)
+paseo_Metropolis$accept
+```
+
+Finalmente, aplicamos el método de las medias por lotes para obtener una estimación de \( \mu \) y un intervalo de confianza. El gráfico de autocorrelación nos indica que lotes de longitud 20 serían suficiente para obtener valores poco correlados.
+
+```{r autocorrelación-paseo-Metropolis}
+autocorr.plot(mcmc(paseo_Metropolis$batch))
+```
+
+Para mayor seguridad, y para poder compararlo con el resultado del muestreador independiente, consideraremos lotes de longitud 2000.
+
+```{r medias-por-lotes-paseo-Metropolis}
+paseo_Metropolis <- metrop(paseo_Metropolis, nbatch = 500, blen = 2000)
+autocorr.plot(mcmc(paseo_Metropolis$batch))
+
+valores <- as.vector(paseo_Metropolis$batch) # Para trabajar con un vector,
+                                             # en lugar de una matriz
+estimacion <- mean(valores)
+error_estandar <- sqrt(var(valores) / paseo_Metropolis$nbatch)
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+percentil <- qnorm(1 - alfa / 2)
+intervalo_confianza <- estimacion + c(-1, 1) * error_estandar * percentil
+```
+
+Se obtiene entonces para \( \mu \) una estimación de `r estimacion`, con un error estándar de `r error_estandar` y (`r intervalo_confianza`) un intervalo de confianza con probabilidad de cobertura `r probabilidad_cobertura`.
+
+
+## Algoritmo de Metropolis-Hastings con un muestreador independiente no adecuado
+
+Supongamos que pretendemos aplicar el algoritmo de Metropolis-Hastings tomando como muestreador independiente la distribución exponencial de parámetro 1. Como la función de densidad de esta distribución solo es positiva para los números no negativos, la cadena de Markov obtenida no será irreducible y no convergerá a la distribución pretendida.
+
+```{r densidad-instrumental-incorrecta}
+log_q <- function(y) {dexp(y, rate = 1, log = TRUE)}
+```
+
+Por ejemplo, si el estado inicial es un número positivo, la cadena de Markov no será capaz de alcanzar la región de números negativos.
+
+```{r reducible-inicial-positivo}
+n <- 1e4
+estados <- numeric(n)
+estados[1] <- 1
+for (t in seq_len(n - 1)) {
+  estado_actual <- estados[t]
+  estado_propuesto <- rexp(1, rate = 1)
+  log_razon_Hastings <-
+    (log_f_u(estado_propuesto) + log_q(estado_actual)) -
+    (log_f_u(estado_actual) + log_q(estado_propuesto))
+  log_u <- log(runif(1))
+  if (log_u < log_razon_Hastings) {
+    estados[t + 1] <- estado_propuesto
+  } else {
+    estados[t + 1] <- estado_actual
+  }
+}
+
+traceplot(mcmc(estados))
+```
+
+Por el contrario, si el estado inicial es un número negativo, la cadena de Markov será constante, ya que se rechazarán todos los nuevos estados propuestos al ser cero la densidad instrumental para el estado actual y, en consecuencia, cero la razón de Hastings para el estado propuesto.
+
+```{r reducible-inicial-negativo}
+n <- 1e4
+estados <- numeric(n)
+estados[1] <- -1
+for (t in seq_len(n - 1)) {
+  estado_actual <- estados[t]
+  estado_propuesto <- rexp(1, rate = 1)
+  log_razon_Hastings <-
+    (log_f_u(estado_propuesto) + log_q(estado_actual)) -
+    (log_f_u(estado_actual) + log_q(estado_propuesto))
+  log_u <- log(runif(1))
+  if (log_u < log_razon_Hastings) {
+    estados[t + 1] <- estado_propuesto
+  } else {
+    estados[t + 1] <- estado_actual
+  }
+}
+
+traceplot(mcmc(estados))
+```
