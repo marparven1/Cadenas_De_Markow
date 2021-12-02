@@ -228,7 +228,7 @@ La función `metrop` del paquete `mcmc` implementa un paseo aleatorio de Metropo
 
 La función admite los siguientes argumentos:
 
-* Una función que calcula el logaritmo de la densidad (posiblemente no normalizada) de la distribución estacionaria deseada para la cadena de Markov. Esta función debe devolver `-Inf` para todos aquellos argumentos en los que la densidad devolvería el valor cero.
+* Una función que calcula el logaritmo de la densidad (posiblemente no normalizada) de la distribución estacionaria deseada para la cadena de Markov. Esta función debe devolver `-Inf` para todos aquellos argumentos en los que la densidad devolvería el valor cero. Esto es obligatorio, pasar logf_u
 * `initial`: el estado inicial de la cadena de Markov. Tiene que ser un vector en consonancia con la dimensión del problema. Aquí un vector con un solo número
 * `nbatch`: el número de lotes (o de estados, si la longitud de cada lote es 1) requeridos. Ya aplica el método de las medias por lotes directamente
 * `blen`: la longitud de cada lote (por defecto, 1).
@@ -245,21 +245,65 @@ log_f_u <- function(x) {
   }
 }
 
-paseo_Metropolis <- metrop(log_f_u, initial = 1, nbatch = 1e4)
+# Ahora aplicamos el paseo aleatorio 
+paseo_Metropolis <- metrop(log_f_u, # log f_u
+                           initial = 1, # estado inicial
+                           nbatch = 1e4 # número de lotes
+                           )
+# Debo elegir un buen estado inicial, sino, el algoritmo va a tardar mucho en llegar a la zona
 ```
 
 La función `metrop` devuelve una lista con mucha información acerca de la cadena construida. En concreto, la componente `batch` contiene los estados de la cadena de Markov (en realidad, contiene las medias de los lotes, pero en este caso coinciden porque por defecto los lotes son de longitud 1).
 
 ```{r salida-metrop}
 str(paseo_Metropolis)
-head(paseo_Metropolis$batch)
+head(paseo_Metropolis$batch) # medias de cada lote
+# Ahora los lotes son de longitud 1, por lo que la media es el valor de cada lote, pero si batchlength es mayor que 1, tengo la media de cada lote
+# lud: log de la densidad no normalizada
+# nspac: varianza para el paseo
+#  $ batch vector de estados
 ```
 
 Es habitual realizar un diagnóstico de convergencia mediante un gráfico que muestra la evolución de los estados de la cadena de Markov a lo largo del tiempo. Este tipo de gráficos nunca se puede usar para asegurar la convergencia, ya que aunque no muestre signos obvios de no convergencia no es posible saber qué podría ocurrir en instantes futuros.
 
 ```{r traza-cadena-Markov}
-traceplot(mcmc(paseo_Metropolis$batch))
+traceplot(mcmc(paseo_Metropolis$batch),main="Evolución de los valores")
+# traceplot es la función de kodac que me hace el gráfico
+abline(h = 0)
 ```
+Rápidamente la cadena se estabiliza en un cierto rango de valores, ya que tenemos un buen estado inicial. LA mayoría de veces está en la zona de probabilidad (1,2), aunque a veces se va a otras zonas.
+
+
+
+
+Si empiezo en el 1000 de estado inicial
+
+
+
+```{r }
+paseo_Metropolis2 <- metrop(log_f_u, # log f_u
+                           initial = 1e3, # estado inicial
+                           nbatch = 1e4 # número de lotes
+                           )
+traceplot(mcmc(paseo_Metropolis2$batch),main="Evolución de los valores")
+# traceplot es la función de kodac que me hace el gráfico
+abline(h = 0)
+```
+
+
+Baja hasta que se estabiliza en la zona de probabilidad, la f no le deja salir de ahí
+
+```{r }
+paseo_Metropolis3<- metrop(log_f_u, # log f_u
+                           initial = 1e2, # estado inicial
+                           nbatch = 1e4 # número de lotes
+                           )
+traceplot(mcmc(paseo_Metropolis3$batch),main="Evolución de los valores")
+# traceplot es la función de kodac que me hace el gráfico
+abline(h = 0)
+```
+
+
 
 En este caso, este gráfico de densidad proporciona una confianza adicional en la convergencia de la cadena de Markov.
 
@@ -278,6 +322,7 @@ paseo_Metropolis$accept
 La función `metrop` tiene la capacidad de «continuar extendiendo» la cadena de Markov cambiando o manteniendo los valores de los parámetros. Para ello basta proporcionarle como argumentos la salida anterior y los nuevos valores de los parámetros que cambien. Para aumentar el porcentaje de nuevos estados aceptados se puede reducir el valor de `scale`, ya que eso hará que se propongan nuevos estados «más cercanos» a los estados actuales y, en consecuencia, con mayor probabilidad de ser aceptados. Por el razonamiento contrario, para disminuir ese porcentaje bastará aumentar el valor de `scale`.
 
 ```{r 25%-estados-aceptados}
+# busco un buen valor de sigma
 paseo_Metropolis <- metrop(paseo_Metropolis, scale = 2)
 paseo_Metropolis$accept
 paseo_Metropolis <- metrop(paseo_Metropolis, scale = 3)
@@ -311,25 +356,30 @@ Se obtiene entonces para \( \mu \) una estimación de `r estimacion`, con un err
 
 ## Algoritmo de Metropolis-Hastings con un muestreador independiente no adecuado
 
+Si propongo valores tal que me dejo regiones sin explorar, lo estaré haciendo mal.
+
+
 Supongamos que pretendemos aplicar el algoritmo de Metropolis-Hastings tomando como muestreador independiente la distribución exponencial de parámetro 1. Como la función de densidad de esta distribución solo es positiva para los números no negativos, la cadena de Markov obtenida no será irreducible y no convergerá a la distribución pretendida.
 
 ```{r densidad-instrumental-incorrecta}
+# elijo como densidad instrumental la exp(1)
 log_q <- function(y) {dexp(y, rate = 1, log = TRUE)}
 ```
 
 Por ejemplo, si el estado inicial es un número positivo, la cadena de Markov no será capaz de alcanzar la región de números negativos.
 
 ```{r reducible-inicial-positivo}
+# Algoritmo de Metrópolis-Hanstrings con estado inicial positivo
 n <- 1e4
 estados <- numeric(n)
 estados[1] <- 1
 for (t in seq_len(n - 1)) {
   estado_actual <- estados[t]
   estado_propuesto <- rexp(1, rate = 1)
-  log_razon_Hastings <-
+  log_razon_Hastings <- # tomo log a la prob de aceptar el nuevo estado
     (log_f_u(estado_propuesto) + log_q(estado_actual)) -
     (log_f_u(estado_actual) + log_q(estado_propuesto))
-  log_u <- log(runif(1))
+  log_u <- log(runif(1)) # genero valor uniforme y le aplico logaritmo
   if (log_u < log_razon_Hastings) {
     estados[t + 1] <- estado_propuesto
   } else {
@@ -339,6 +389,8 @@ for (t in seq_len(n - 1)) {
 
 traceplot(mcmc(estados))
 ```
+La cadena de markow no ha explorado la región (-2,0). Podríamos pensar que la cadena ha convergido, porque se ha estabilizado, pero no es así.
+
 
 Por el contrario, si el estado inicial es un número negativo, la cadena de Markov será constante, ya que se rechazarán todos los nuevos estados propuestos al ser cero la densidad instrumental para el estado actual y, en consecuencia, cero la razón de Hastings para el estado propuesto.
 
