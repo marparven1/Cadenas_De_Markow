@@ -1,0 +1,164 @@
+---
+title: 'Muestreador de Gibbs'
+output: html_document
+---
+
+```{r replicabilidad, include=FALSE}
+set.seed(23059823)
+```
+
+Se pretende estimar \(\mathbb{E}_{f}[\mathbf{X}]\), donde
+\[
+  f(x_{1}, x_{2}) \propto
+  \begin{cases}
+    \mathrm{e}^{-x_{1} x_{2} - x_{1} - x_{2}}
+    &\text{si \(x_{1} \geq 0\) y \(x_{2} \geq 0\)}, \\
+    0
+    &\text{en otro caso.}
+  \end{cases}
+\]
+
+```{r densidad, message=FALSE}
+library(plotly)
+
+f_u <- function(x1, x2) {
+  exp(-x1 * x2 - x1 - x2) * (x1 >= 0) * (x2 >= 0)
+}
+
+malla <- data.frame(x1 = (0:300) / 100,
+                    x2 = (0:300) / 100)
+malla %>% 
+  plot_ly(x = ~x2, y = ~x1) %>% 
+  add_surface(z = outer(malla$x1, malla$x2, f_u)) # outer me pide que la función que le pase esté vectorizada
+```
+
+
+Vemos que el máximo de la función es en el (0,0)
+
+Vamos a realizar la estimación requerida a partir de un muestreador de Gibbs. Para ello, en primer lugar determinamos las distribuciones condicionales completas.
+\begin{align*}
+  f(x_1 \mid x_2) &\propto
+  \begin{cases}
+    \mathrm{e}^{-(x_{2} + 1) x_{1}}
+    &\text{si \(x_{1} \geq 0\)}, \\
+    0
+    &\text{en otro caso.}
+  \end{cases}
+  \qquad\text{para } x_{2} \geq 0 \\
+  f(x_2 \mid x_1) &\propto
+  \begin{cases}
+    \mathrm{e}^{-(x_{1} + 1) x_{2}}
+    &\text{si \(x_{2} \geq 0\)}, \\
+    0
+    &\text{en otro caso.}
+  \end{cases}
+  \qquad\text{para } x_{1} \geq 0 \\
+\end{align*}
+
+Por tanto, \(f(x_{1} \mid x_{2}) \sim \mathrm{Exp}(x_{2} + 1)\) (asumiendo \(x_{2} \geq 0\)) y \(f(x_{2} \mid x_{1}) \sim \mathrm{Exp}(x_{1} + 1)\) (asumiendo \(x_{1} \geq 0\)).
+
+A continuación, iniciamos el muestreador de Gibbs a partir del estado \(x_{1} = x_{2} = 0\), que es donde la densidad objetivo toma su máximo. Para generar el estado siguiente a partir del actual, generamos de manera aleatoria sus componentes por separado, usando las distribuciones condicionales completas: \(x_{1 t+1} \sim \mathrm{Exp}(x_{2 t} + 1)\) y \(x_{2 t+1} \sim \mathrm{Exp}(x_{1 t+1} + 1)\).
+
+Tengo que generar la matriz con los estados manualmente. En las componentes negativas no puedo, porque es la exponencial.
+Cojo un estado inicial que sea muy probable, el estado inicial (0,0) es el estado más probable de todo y está permitido, porque la densidad de la exponencia les \(\geq 0\), si no pusiera mayor o igual, habría que tener cuidado, aunque en la exponencial la probabilidad de obtener el 0 es 0 por lo que podría seguir utilizándolo.
+
+```{r muestreador-Gibbs}
+n <- 1e4
+estados <- matrix(nrow = n, ncol = 2)
+estados[1,] <- c(0, 0)
+for (t in seq_len(n - 1)) {
+  x1_actual <- estados[t, 1] # valor que hay en la matriz de estados en la fila y y col 1
+  x2_actual <- estados[t, 2] # valor que hay en la matriz de estados en la fila y y col 2
+  # ahora aplico el algoritmo
+  x1_nuevo <- rexp(1, rate = x2_actual + 1)  # rate es el parámetro
+  x2_nuevo <- rexp(1, rate = x1_nuevo + 1) # rate es el nuevo, ya que lo tengo lo uso
+  estados[t + 1,] <- c(x1_nuevo, x2_nuevo)
+}
+
+head(estados)
+```
+
+Como diagnóstico de convergencia, los siguientes gráficos parecen indicar que la cadena de Markov ha convergido a la densidad deseada.
+
+```{r diagnóstico-convergencia}
+library(coda)
+traceplot(mcmc(estados)) # gráfico de trazas
+```
+
+Como son dos componentes salen dos gráficas de trazas. Parece que la cadena converge y se ha estabilizado para x1 y x2 en los siguientes intervalos:
+
+- x1 (0,2)
+- x2 (0,2)
+
+De vez en cuando salen algunos valores mayores, pero en general están en esos intervalos, que es donde la densidad tiene mayor probabilidad.
+
+Vamos a hacer otro gráfico para confirmar la convergencia.
+
+
+```{r diagnóstico-convergencia}
+library(ggplot2)
+ggplot() +
+  geom_point(data = as.data.frame(estados),
+             mapping = aes(x = V1, y = V2),
+             shape = ".") +
+  geom_contour(data = expand.grid(x1 = (0:300) / 100, x2 = (0:300) / 100),
+               aes(x = x1, y = x2, z = f_u(x1, x2)))
+```
+Vemos que la nube de puntos se sitúa más o menos, es decir, es mas densa donde las lineas de nivel (donde fu tiene más fuerza) en el (0,0). 
+
+Nota: recordar que no está normalizada, la cte de normalización desplazaría las curvas de nivel y los puntos se ajustarían mejor.
+
+C
+
+
+
+
+Estamos ya en condiciones de obtener la estimación requerida, ya que la cadena de Markow ha convergido así como intervalos de confianza para la misma (uno para cada componente). El gráfico de autocorrelación parece indicar que, al aplicar el método de las medias por lotes, la longitud de estos no es necesario que sea excesivamente grande.
+
+```{r estimación}
+# aplicando el método de las medias por lotes
+autocorr.plot(mcmc(estados), lag.max = 10)
+```
+
+Prácticamente enseguida tenemos independencia. Para una longitud 10 ya la tenemos, pero para tener seguridad y que no se me escape nada, pongo una longitud de lotes de 100
+
+```{r estimación}
+n <- 1e5 # genero esos estados totales 
+longitud_lotes <- 100 # long de cada lote
+numero_lotes <- n / longitud_lotes # serán 1000 lotes en total
+medias_lotes <- matrix(nrow = numero_lotes, ncol = 2)
+estado_actual <- c(0, 0)
+for (i in seq_len(numero_lotes)) {
+  suma_estados <- c(0, 0)
+  for (t in seq_len(longitud_lotes)) {
+    suma_estados <- suma_estados + estado_actual
+    x1_actual <- estado_actual[1]
+    x2_actual <- estado_actual[2]
+    x1_nuevo <- rexp(1, rate = x2_actual + 1)
+    x2_nuevo <- rexp(1, rate = x1_nuevo + 1)
+    estado_actual <- c(x1_nuevo, x2_nuevo)
+  }
+  medias_lotes[i,] <- suma_estados / longitud_lotes # divido por la cantidad de estado = longitud del lote
+  # no guardo todos los estados, solo las medias de los lotes
+}
+
+autocorr.plot(mcmc(medias_lotes))
+
+estimacion <- apply(medias_lotes, 2, mean)
+estimacion 
+```
+
+Una estimación para cada variable, como es simétrico debe salir aproximadamente el mismo valor.
+
+```{r estimación}
+error_estandar <- sqrt(apply(medias_lotes, 2, var) # cuasivar de cada columna
+                       / numero_lotes)
+probabilidad_cobertura <- 0.95
+alfa <- 1 - probabilidad_cobertura
+percentil <- qnorm(1 - alfa / 2)
+intervalos_confianza <- cbind(
+  x1 = estimacion[1] + c(-1, 1) * error_estandar[1] * percentil,
+  x2 = estimacion[2] + c(-1, 1) * error_estandar[2] * percentil
+)
+intervalos_confianza
+```

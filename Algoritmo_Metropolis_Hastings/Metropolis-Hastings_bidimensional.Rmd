@@ -23,8 +23,9 @@ Se pretende estimar \( \mathbb{E}_{f}[g(X_{1}, X_{2})] \), donde
 ```{r densidad, message=FALSE}
 library(plotly)
 
-f_u <- function(x1, x2) {
-  exp(-4 * (x2 - x1 ^ 2) ^ 2 + (x2 - 1) ^ 2) * (x2 <= 2)
+f_u <- function(x1, x2) {# fdd no normalizada
+  exp(-4 * (x2 - x1 ^ 2) ^ 2 + (x2 - 1) ^ 2) * 
+    (x2 <= 2) # multiplico por la condición para que fuera una función vectorizada
 }
 
 # malla de puntos donde voy a representar la función
@@ -83,33 +84,86 @@ Como diagnóstico de convergencia, los siguientes gráficos parecen indicar que 
 
 ```{r diagnóstico-convergencia}
 library(coda)
-
 traceplot(mcmc(paseo_Metropolis$batch))
-
+# Me da dos gráficos, porque estoy en R2, uno para cada dimensión, x1 y x2 respectivamente
 library(ggplot2)
 
-ggplot(expand.grid(x1 = (-250:250) / 100, x2 = (-250:250) / 100),
+
+
+ggplot(expand.grid(# expand grid. Hace todas las combinaciones, es una malla
+  x1 = (-250:250) / 100, # lo que hago es: seq(-2.5 , 2.5 ,by=0.01)
+  x2 = (-250:250) / 100), # lo mismo
        aes(x = x1, y = x2, z = f_u(x1, x2))) +
-  geom_contour() +
-  geom_point(data = as.data.frame(paseo_Metropolis$batch),
+  geom_contour() + # gráfico de líneas de nivel
+  geom_point(data = as.data.frame(paseo_Metropolis$batch), # puntos a partir de los estados
              mapping = aes(x = V1, y = V2),
              size = .5,
              inherit.aes = FALSE)
+
 ```
+
+
+Con respecto a las dos primeras gráficas:
+
+La estabilización de los valores en un rango en principio mostraría convergencia, pero el gráfico no es absoluto, en realidad habría que probarlo matemáticamente.
+
+La cadena de markow ha convergido a la zona de probabilidad.
+
+- x1 se mueve aproximadamente en el intervalo (-1.5,1.5)
+- x2 "" (-1,2)
+
+
+En el último gráfico veremos las curvas de nivel, que juntarán puntos que tienen el mismo valor de la función de densidad. Si están muy juntas la fdd tiene mucha pendiente y si se separan son zonas donde la fdd tiene menos pendiente.
+Las curvas de nivel me dan los tres picos de la fu, los puntos se situan en mayor medida donde están esos tres picos, mayoritariamente een el centro.
+
+Hay puntos fuera poque la probabilidad ahí no es nula, existe probabilidad de que se generen esos estados.
+
+
+
 
 Estamos ya en condiciones de obtener la estimación requerida, así como un intervalo de confianza para la misma. El gráfico de autocorrelación parece indicar que, al aplicar el método de las medias por lotes, la longitud de estos debería ser de al menos 50 estados.
 
-```{r estimación}
+```{r }
 autocorr.plot(mcmc(paseo_Metropolis$batch), lag.max = 100)
+```
 
+gráfico de autocorrelación para x1 y x2:
+
+- Aún vemos demasiada correlación, añado lag.max
+- Ahora vemos que el x1, primer gráfico de autocorrelación, a partir de 50 empieza a oscilar alrededor del 0. El x2 aún no, podemos seguir ampliando el gráfico hasta que x2 esté en la misma situación
+- Tendría que dar otro paso y añadir mas lag, hasta que x2 ya no dependa
+- Se ve que en 150 x2 ya no depende.
+
+Por este motivo, se ve que a partir de 150, las dos coordenadas son independientes, por tanto, debo coger una longitud de lotes de 150
+
+
+```{r corr}
 g <- function(x) {
   x1 <- x[1]
   x2 <- x[2]
   sqrt(x1 ^ 2 + x2 ^ 2)
 }
-paseo_Metropolis <- mcmc::metrop(paseo_Metropolis, nbatch = 1e3, blen = 1e2, outfun = g)
-autocorr.plot(mcmc(paseo_Metropolis$batch))
+paseo_Metropolis <- mcmc::metrop(paseo_Metropolis, outfun = g)
+autocorr.plot(mcmc(paseo_Metropolis$batch), lag.max = 100)
+# aptes día 7/12
+library(mcmc)
 
+# puedo decirle a metrop el número de lotes y el número de estados en cada lote, ahora necesito decirle que antes de hacer la media aplique g a cada estado(de 1 a 10000), ya que yo quiero la media de g(estados)
+paseo_Metropolis <- mcmc::metrop(paseo_Metropolis, nbatch = 1e4, blen = 1e2, 
+                                 outfun = g) # función de salida (recibido en un vector)
+autocorr.plot(mcmc(paseo_Metropolis$batch), lag.max = 100) # gráf de autocorrelac de x1 y x2
+# autocorrelación cuando YA HE APLICADO G
+```
+
+
+
+
+Cuando ya he aplicado g, solo obtengo una gráfica, ya que por definición de la función \(g(x_1,x_2)\), obtengo un único número para cada estado.
+Alcanzamos la independencia en 40 y pico, pero elijo longitud 100 para asegurar la independencia.
+
+
+
+```{r estimación}
 valores <- as.vector(paseo_Metropolis$batch)
 estimacion <- mean(valores)
 error_estandar <- sqrt(var(valores) / paseo_Metropolis$nbatch)
@@ -118,5 +172,6 @@ alfa <- 1 - probabilidad_cobertura
 percentil <- qnorm(1 - alfa / 2)
 intervalo_confianza <- estimacion + c(-1, 1) * error_estandar * percentil
 ```
+
 
 Se obtiene entonces una estimación de `r estimacion`, con (`r intervalo_confianza`) un intervalo de confianza con probabilidad de cobertura `r probabilidad_cobertura`.
